@@ -1,0 +1,44 @@
+[workspace]
+members = ["crates/bench-forgejo"]
+resolver = "3"
+
+[workspace.package]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "http://localhost:3000/ai/bench"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[profile.dev]
+opt-level = 0
+debug = 0
+incremental = true
+codegen-units = 256
+lto = false
+
+[profile.dev.package."*"]
+debug = 0
+
+[profile.test]
+opt-level = 0
+debug = 0
+incremental = true
+codegen-units = 256
+lto = false
+
+[package]
+name = "bench"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "bench"
+path = "src/bin/bench.rs"
+
+[dependencies]
+bench-forgejo = { path = "crates/bench-forgejo" }
+
+[lints]
+workspace = true

@@ -1,0 +1,30 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: host
+    env:
+      WORKDIR: $HOME/.local/state/forgejo/runner/data/bench
+      CARGO_TARGET_DIR: $HOME/.cache/cargo-target-bench
+    steps:
+      - name: Prepare work directory
+        run: |
+          mkdir -p "$WORKDIR"
+          mkdir -p "$CARGO_TARGET_DIR"
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: ${{ env.WORKDIR }}
+      - name: Format
+        working-directory: ${{ env.WORKDIR }}
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        working-directory: ${{ env.WORKDIR }}
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test
+        working-directory: ${{ env.WORKDIR }}
+        run: cargo test --workspace
