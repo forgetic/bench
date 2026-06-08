@@ -39,6 +39,7 @@ path = "src/bin/bench.rs"
 
 [dependencies]
 bench-forgejo = { path = "crates/bench-forgejo" }
+signal-hook = "0.3"
 
 [lints]
 workspace = true
