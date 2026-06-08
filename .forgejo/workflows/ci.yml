@@ -1,30 +1,64 @@
 name: ci
 
 on:
-  push:
   pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+  push:
+    branches:
+      - main
 
 jobs:
   ci:
     runs-on: host
     env:
-      WORKDIR: $HOME/.local/state/forgejo/runner/data/bench
-      CARGO_TARGET_DIR: $HOME/.cache/cargo-target-bench
+      CARGO_BUILD_JOBS: "1"
+    defaults:
+      run:
+        working-directory: ${{ env.HOME }}/.local/state/forgejo/runner/data/bench
     steps:
-      - name: Prepare work directory
-        run: |
-          mkdir -p "$WORKDIR"
-          mkdir -p "$CARGO_TARGET_DIR"
       - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          path: ${{ env.WORKDIR }}
+        working-directory: ${{ env.HOME }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+
+          repo_dir="$HOME/.local/state/forgejo/runner/data/bench"
+          repo_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+
+          mkdir -p "$(dirname "$repo_dir")"
+
+          if [ -d "$repo_dir/.git" ]; then
+            cd "$repo_dir"
+            git remote set-url origin "$repo_url"
+          else
+            rm -rf "$repo_dir"
+            git -c http.extraheader="AUTHORIZATION: token $GITHUB_TOKEN" \
+              clone --no-checkout "$repo_url" "$repo_dir"
+            cd "$repo_dir"
+          fi
+
+          git -c http.extraheader="AUTHORIZATION: token $GITHUB_TOKEN" \
+            fetch --force --prune origin "$GITHUB_REF"
+          git checkout --force --detach FETCH_HEAD
+          git reset --hard "$GITHUB_SHA"
+          # Keep the shared Cargo target symlink and Forgejo fixture binary cache.
+          # `target/` does not match a symlink, so exclude `target` without a slash.
+          git clean -ffdx -e target -e .cache/forgejo
+
+          mkdir -p "$HOME/.cache/cargo-target-bench"
+          if [ -e target ] && [ ! -L target ]; then
+            rm -rf target
+          fi
+          ln -sfn "$HOME/.cache/cargo-target-bench" target
       - name: Format
-        working-directory: ${{ env.WORKDIR }}
         run: cargo fmt --all -- --check
-      - name: Clippy
-        working-directory: ${{ env.WORKDIR }}
+      - name: Lint
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test
-        working-directory: ${{ env.WORKDIR }}
         run: cargo test --workspace
