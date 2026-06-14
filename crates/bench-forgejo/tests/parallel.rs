@@ -387,21 +387,18 @@ where
 
 fn assert_server_teardown(base_url: &str, data_dir: &Path) -> Result<(), String> {
     let version_url = format!("{base_url}/api/v1/version");
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_millis(500))
-        .build()
-        .map_err(|error| error.to_string())?;
+    // "Port is down" = the GET fails to connect (server gone).
+    let port_is_down = |url: &str| bench_forgejo::http::blocking_get_small(url).is_err();
     for _ in 0..25 {
-        let port_is_down = client.get(&version_url).send().is_err();
         let data_dir_is_gone = !data_dir.exists();
-        if port_is_down && data_dir_is_gone {
+        if port_is_down(&version_url) && data_dir_is_gone {
             return Ok(());
         }
         std::thread::sleep(Duration::from_millis(200));
     }
     Err(format!(
         "server did not tear down cleanly: url_down={} data_dir_exists={} ({})",
-        client.get(&version_url).send().is_err(),
+        port_is_down(&version_url),
         data_dir.exists(),
         data_dir.display()
     ))

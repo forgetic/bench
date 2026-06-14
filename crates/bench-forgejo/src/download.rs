@@ -21,7 +21,7 @@
 
 use sha2::{Digest, Sha256};
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -39,8 +39,6 @@ pub const FORGEJO_RUNNER_VERSION: &str = "3.5.1";
 pub const FORGEJO_RUNNER_SHA256: &str =
     "e2f36aa8149a0e883b5713398aa185c88a827fc0527d5cd2e2b05b88c9ba0b36";
 
-/// How long the one-shot download is allowed to take.
-const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(300);
 /// How long to wait for another process to finish publishing the same target.
 const LOCK_TIMEOUT: Duration = Duration::from_secs(300);
 
@@ -248,11 +246,11 @@ where
 }
 
 fn http_get(url: &str) -> Result<Vec<u8>, DownloadError> {
-    // `reqwest::blocking` owns an internal Tokio runtime. If the first-use
-    // binary download is triggered from an async test, building/dropping that
-    // runtime on the reactor thread panics. Keep the blocking client entirely
-    // on a plain OS thread so sync fixture entry points remain safe no matter
-    // who calls them.
+    // The skein HTTP client is async and we drive it on a fresh one-shot
+    // runtime. Building/dropping a runtime from inside another runtime's reactor
+    // thread is unsafe, and the first-use download may be triggered from an
+    // async test, so run the whole thing on a plain OS thread — sync fixture
+    // entry points stay safe no matter who calls them.
     let url = url.to_string();
     std::thread::spawn(move || http_get_on_thread(&url))
         .join()
@@ -260,26 +258,19 @@ fn http_get(url: &str) -> Result<Vec<u8>, DownloadError> {
 }
 
 fn http_get_on_thread(url: &str) -> Result<Vec<u8>, DownloadError> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(DOWNLOAD_TIMEOUT)
-        .build()
-        .map_err(|err| DownloadError::Http(err.to_string()))?;
-    let response = client
-        .get(url)
-        .send()
-        .map_err(|err| DownloadError::Http(err.to_string()))?;
-    if !response.status().is_success() {
+    // The release asset is ~100 MB; raise skein's buffered-body cap well above
+    // it (skein follows redirects to the CDN by default). The whole call runs
+    // on this plain OS thread, so building a one-shot runtime here is safe.
+    const MAX_DOWNLOAD_BYTES: usize = 512 * 1024 * 1024; // generous cap
+    let response =
+        crate::http::blocking_get(url, MAX_DOWNLOAD_BYTES).map_err(DownloadError::Http)?;
+    if !(200..300).contains(&response.status) {
         return Err(DownloadError::Http(format!(
             "GET {url} returned status {}",
-            response.status()
+            response.status
         )));
     }
-    let mut bytes = Vec::new();
-    response
-        .take(512 * 1024 * 1024) // generous cap; the asset is ~100 MB
-        .read_to_end(&mut bytes)
-        .map_err(|err| DownloadError::Http(err.to_string()))?;
-    Ok(bytes)
+    Ok(response.body)
 }
 
 fn verify_checksum(bytes: &[u8], expected: &str) -> Result<(), DownloadError> {

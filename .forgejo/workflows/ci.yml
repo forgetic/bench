@@ -56,6 +56,18 @@ jobs:
             rm -rf target
           fi
           ln -sfn "$HOME/.cache/cargo-target-bench" target
+      - name: Checkout sibling path dependency (skein)
+        # bench-forgejo depends on skein by the flat-sibling path
+        # `../../../skein/crates/skein`, which from this checkout resolves to a
+        # `skein/` sibling of `bench/`. A second actions/checkout cannot fetch it
+        # (the job token is scoped to ai/bench); skein is public, so a plain
+        # clone of its default branch does the job — the same pattern temper's CI
+        # uses for its siblings.
+        working-directory: ${{ env.HOME }}/.local/state/forgejo/runner/data
+        run: |
+          set -eu
+          rm -rf skein
+          git clone --depth 1 "${{ github.server_url }}/ai/skein.git" skein
       - name: Format
         run: cargo fmt --all -- --check
       - name: Lint

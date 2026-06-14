@@ -15,6 +15,7 @@
 //! automatically on first startup and reuse `.cache/forgejo/` afterward.
 
 pub mod download;
+pub mod http;
 pub mod runner;
 pub mod state;
 
@@ -226,10 +227,6 @@ impl ForgejoServer {
 
 fn wait_until_ready(child: &mut Child, base_url: &str, data_dir: &Path) -> Result<(), ServerError> {
     let version_url = format!("{base_url}/api/v1/version");
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(2))
-        .build()
-        .map_err(|err| ServerError::NotReady(err.to_string()))?;
     let deadline = Instant::now() + READY_TIMEOUT;
     loop {
         // Surface an early crash instead of polling a dead process.
@@ -239,8 +236,9 @@ fn wait_until_ready(child: &mut Child, base_url: &str, data_dir: &Path) -> Resul
                 read_log_tail(data_dir)
             )));
         }
-        if let Ok(response) = client.get(&version_url).send() {
-            if response.status().is_success() {
+        // A small loopback GET to a local server; the default body cap is ample.
+        if let Ok(response) = crate::http::blocking_get_small(&version_url) {
+            if (200..300).contains(&response.status) {
                 return Ok(());
             }
         }
